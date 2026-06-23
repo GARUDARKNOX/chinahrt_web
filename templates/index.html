@@ -1,0 +1,727 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>chinahrt 自动学习</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #f0f2f5; color: #333; font-size: 14px; }
+
+/* === Layout === */
+.header { background: #001529; color: #fff; padding: 0 24px; height: 56px; display: flex; align-items: center; justify-content: space-between; }
+.header h1 { font-size: 18px; font-weight: 500; }
+.header .status-bar { display: flex; gap: 16px; align-items: center; font-size: 12px; color: #aaa; }
+.header .dot { width: 8px; height: 8px; border-radius: 50%; background: #52c41a; display: inline-block; margin-right: 4px; }
+
+.container { display: flex; gap: 16px; padding: 16px; max-width: 1600px; margin: 0 auto; }
+.left-panel { width: 340px; flex-shrink: 0; }
+.right-panel { flex: 1; min-width: 0; }
+
+/* === Card === */
+.card { background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); margin-bottom: 16px; }
+.card-header { padding: 12px 16px; border-bottom: 1px solid #f0f0f0; font-weight: 600; font-size: 14px; display: flex; align-items: center; justify-content: space-between; }
+.card-body { padding: 16px; }
+
+/* === Form === */
+.form-group { margin-bottom: 12px; }
+.form-group label { display: block; margin-bottom: 4px; font-size: 12px; color: #666; }
+.form-group input, .form-group select { width: 100%; padding: 8px 12px; border: 1px solid #d9d9d9; border-radius: 4px; font-size: 14px; transition: border-color 0.2s; }
+.form-group input:focus, .form-group select:focus { outline: none; border-color: #1890ff; }
+.captcha-row { display: flex; gap: 8px; align-items: flex-end; }
+.captcha-row input { flex: 1; }
+.captcha-img { width: 120px; height: 40px; border: 1px solid #d9d9d9; border-radius: 4px; cursor: pointer; object-fit: cover; background: #f5f5f5; display: flex; align-items: center; justify-content: center; color: #999; font-size: 12px; }
+.captcha-img img { width: 100%; height: 100%; border-radius: 4px; }
+
+/* === Button === */
+.btn { padding: 8px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; transition: all 0.2s; display: inline-flex; align-items: center; gap: 4px; }
+.btn-primary { background: #1890ff; color: #fff; }
+.btn-primary:hover { background: #40a9ff; }
+.btn-primary:disabled { background: #91d5ff; cursor: not-allowed; }
+.btn-danger { background: #ff4d4f; color: #fff; }
+.btn-danger:hover { background: #ff7875; }
+.btn-success { background: #52c41a; color: #fff; }
+.btn-success:hover { background: #73d13d; }
+.btn-sm { padding: 4px 12px; font-size: 12px; }
+.btn-ghost { background: transparent; border: 1px solid #d9d9d9; color: #666; }
+.btn-ghost:hover { border-color: #1890ff; color: #1890ff; }
+.btn-block { width: 100%; justify-content: center; }
+
+/* === Account List === */
+.account-item { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-radius: 4px; margin-bottom: 4px; background: #fafafa; }
+.account-item.active { background: #e6f7ff; }
+.account-name { font-weight: 500; }
+.account-domain { font-size: 11px; color: #999; }
+.account-status { font-size: 11px; padding: 2px 8px; border-radius: 10px; }
+.status-idle { background: #f0f0f0; color: #888; }
+.status-learning { background: #e6f7ff; color: #1890ff; }
+.status-error { background: #fff1f0; color: #ff4d4f; }
+
+/* === Course Table === */
+.course-toolbar { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; }
+.course-table { width: 100%; border-collapse: collapse; }
+.course-table th { text-align: left; padding: 8px 12px; background: #fafafa; border-bottom: 1px solid #f0f0f0; font-size: 12px; color: #666; font-weight: 600; white-space: nowrap; }
+.course-table td { padding: 8px 12px; border-bottom: 1px solid #f5f5f5; }
+.course-table tr:hover { background: #fafafa; }
+.course-table input[type="checkbox"] { cursor: pointer; }
+.progress-bar { display: inline-block; width: 80px; height: 16px; background: #f0f0f0; border-radius: 8px; overflow: hidden; vertical-align: middle; }
+.progress-bar-fill { height: 100%; background: #52c41a; transition: width 0.3s; }
+.progress-text { font-size: 11px; color: #666; margin-left: 4px; }
+.tag { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 11px; }
+.tag-done { background: #f6ffed; color: #52c41a; border: 1px solid #b7eb8f; }
+.tag-todo { background: #fff7e6; color: #fa8c16; border: 1px solid #ffd591; }
+.tag-zero { background: #f0f0f0; color: #999; }
+
+/* === Dashboard === */
+.dash-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.dash-account { border: 1px solid #f0f0f0; border-radius: 8px; padding: 12px; }
+.dash-account h4 { font-size: 13px; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+.dash-current { font-size: 12px; color: #666; margin-bottom: 8px; min-height: 20px; }
+.dash-progress { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.dash-log { max-height: 180px; overflow-y: auto; font-size: 11px; font-family: monospace; color: #666; margin-top: 8px; padding: 8px; background: #fafafa; border-radius: 4px; }
+.dash-log .log-line { padding: 1px 0; }
+.dash-log .log-time { color: #bbb; }
+.dash-log .log-err { color: #ff4d4f; }
+.dash-log .log-ok { color: #52c41a; }
+.dash-log .log-info { color: #1890ff; }
+
+/* === Misc === */
+.empty-state { text-align: center; padding: 40px 16px; color: #999; }
+.section-count { font-size: 11px; color: #999; }
+.spin { display: inline-block; width: 14px; height: 14px; border: 2px solid #f0f0f0; border-top-color: #1890ff; border-radius: 50%; animation: spin 0.6s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.badge { background: #1890ff; color: #fff; padding: 1px 6px; border-radius: 10px; font-size: 11px; }
+.text-muted { color: #999; }
+.text-right { text-align: right; }
+.mt-8 { margin-top: 8px; }
+.mb-8 { margin-bottom: 8px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>📚 chinahrt 自动学习</h1>
+  <div class="status-bar">
+    <span><span class="dot" id="sse-dot"></span>SSE: <span id="sse-status">连接中...</span></span>
+    <span>账户: <span id="account-count">0</span></span>
+    <span>选中课程: <span id="selected-count">0</span></span>
+  </div>
+</div>
+
+<div class="container">
+  <!-- Left: Login + Accounts -->
+  <div class="left-panel">
+    <div class="card">
+      <div class="card-header">添加账户</div>
+      <div class="card-body">
+        <div class="form-group">
+          <label>平台域名</label>
+          <select id="domain">
+            <option value="gp.chinahrt.com">gp.chinahrt.com</option>
+            <option value="lczj.chinahrt.com">lczj.chinahrt.com</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>用户名</label>
+          <input type="text" id="username" placeholder="用户名">
+        </div>
+        <div class="form-group">
+          <label>密码</label>
+          <input type="password" id="password" placeholder="密码">
+        </div>
+        <div class="form-group">
+          <label>验证码</label>
+          <div class="captcha-row">
+            <input type="text" id="captcha" placeholder="输入验证码" maxlength="10">
+            <div class="captcha-img" id="captcha-img" onclick="refreshCaptcha()">点击获取</div>
+          </div>
+        </div>
+        <button class="btn btn-primary btn-block" id="login-btn" onclick="doLogin()">登录并获取课程</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        已登录账户
+        <span class="badge" id="acct-badge">0</span>
+      </div>
+      <div class="card-body" id="account-list">
+        <div class="empty-state text-muted">暂无账户</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">操作</div>
+      <div class="card-body" style="display:flex;flex-direction:column;gap:8px;">
+        <button class="btn btn-success btn-block" id="start-btn" onclick="startLearning()">▶ 开始学习选中课程</button>
+        <button class="btn btn-danger btn-block" onclick="stopAll()">⏹ 停止全部</button>
+        <button class="btn btn-ghost btn-block" id="refresh-btn" onclick="refreshAll()">🔄 刷新所有课程</button>
+        <button class="btn btn-ghost btn-block btn-sm" id="toggle-completed-btn" onclick="toggleCompleted()">✅ 显示已完成课程</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right: Courses + Dashboard -->
+  <div class="right-panel">
+    <div class="card">
+      <div class="card-header">
+        课程列表
+        <div class="course-toolbar" style="margin:0;">
+          <button class="btn btn-ghost btn-sm" onclick="selectAll(true)">全选</button>
+          <button class="btn btn-ghost btn-sm" onclick="selectAll(false)">取消全选</button>
+          <button class="btn btn-ghost btn-sm" onclick="selectUncompleted()">只选未完成</button>
+        </div>
+      </div>
+      <div class="card-body" style="padding:0;">
+        <table class="course-table" id="course-table">
+          <thead>
+            <tr>
+              <th style="width:32px;"><input type="checkbox" id="check-all" onchange="toggleAll(this)"></th>
+              <th>账户</th>
+              <th>课程名称</th>
+              <th>培训计划</th>
+              <th>进度</th>
+              <th>未完成</th>
+              <th>预计时长</th>
+            </tr>
+          </thead>
+          <tbody id="course-tbody">
+            <tr><td colspan="7" class="empty-state">请先登录获取课程列表</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">学习进度看板</div>
+      <div class="card-body">
+        <div class="dash-grid" id="dash-grid">
+          <div class="empty-state">暂无学习任务</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// State
+// ============================================================
+var accounts = {};   // account_id -> {info, courses}
+var dashState = {};  // account_id -> {current, progress, logs:[]}
+var captchaSession = null;
+var selectedAccount = null; // null = show all accounts
+var showCompletedOnly = false; // default: hide 100% courses
+
+// ============================================================
+// Captcha
+// ============================================================
+function refreshCaptcha() {
+  var domain = document.getElementById('domain').value;
+  var imgBox = document.getElementById('captcha-img');
+  imgBox.innerHTML = '<span class="spin"></span>';
+
+  fetch('/api/captcha', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({domain: domain})
+  })
+  .then(r => r.json())
+  .then(data => {
+    captchaSession = data.session_id;
+    imgBox.innerHTML = '<img src="data:image/jpeg;base64,' + data.image + '" alt="验证码">';
+  })
+  .catch(err => {
+    imgBox.innerHTML = '获取失败';
+  });
+}
+
+// ============================================================
+// Login
+// ============================================================
+function doLogin() {
+  var domain = document.getElementById('domain').value;
+  var username = document.getElementById('username').value.trim();
+  var password = document.getElementById('password').value.trim();
+  var captcha = document.getElementById('captcha').value.trim();
+
+  if (!username || !password) {
+    alert('请填写用户名和密码');
+    return;
+  }
+
+  var btn = document.getElementById('login-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spin"></span> 登录中...';
+
+  fetch('/api/login', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      username: username,
+      password: password,
+      captcha: captcha,
+      domain: domain,
+      session_id: captchaSession || ''
+    })
+  })
+  .then(r => r.json())
+  .then(data => {
+    btn.disabled = false;
+    btn.innerHTML = '登录并获取课程';
+
+    if (!data.ok) {
+      alert('登录失败: ' + (data.msg || '未知错误'));
+      refreshCaptcha();
+      return;
+    }
+
+    // Store account
+    accounts[data.account_id] = {
+      id: data.account_id,
+      user_name: data.user_name,
+      domain: data.domain,
+      courses: data.courses || []
+    };
+    dashState[data.account_id] = {current: '', progress: 0, total: 0, logs: []};
+
+    // Clear form
+    document.getElementById('username').value = '';
+    document.getElementById('password').value = '';
+    document.getElementById('captcha').value = '';
+    document.getElementById('captcha-img').innerHTML = '点击获取';
+
+    renderAccounts();
+    renderCourses();
+    renderDashboard();
+  })
+  .catch(err => {
+    btn.disabled = false;
+    btn.innerHTML = '登录并获取课程';
+    alert('网络错误: ' + err);
+  });
+}
+
+// ============================================================
+// Render: Accounts
+// ============================================================
+function renderAccounts() {
+  var el = document.getElementById('account-list');
+  var keys = Object.keys(accounts);
+  document.getElementById('account-count').textContent = keys.length;
+  document.getElementById('acct-badge').textContent = keys.length;
+
+  if (keys.length === 0) {
+    el.innerHTML = '<div class="empty-state text-muted">暂无账户</div>';
+    return;
+  }
+
+  var html = '<div class="account-item' + (selectedAccount === null ? ' active' : '') + '" style="cursor:pointer;" onclick="selectAccount(null)">' +
+    '<div><div class="account-name">全部账户</div><div class="account-domain">显示所有课程</div></div>' +
+    '<span class="badge">' + keys.length + '</span>' +
+  '</div>';
+
+  html += keys.map(function(id) {
+    var a = accounts[id];
+    var st = dashState[id] || {};
+    var isLearning = st.status === 'learning';
+    var isActive = selectedAccount === id;
+    return '<div class="account-item' + (isActive ? ' active' : '') + '" style="cursor:pointer;" onclick="selectAccount(\'' + id + '\')">' +
+      '<div>' +
+        '<div class="account-name">' + a.user_name + '</div>' +
+        '<div class="account-domain">' + a.domain + ' · ' + (a.courses ? a.courses.length : 0) + '门课</div>' +
+      '</div>' +
+      '<span class="account-status status-' + (st.status || 'idle') + '">' +
+        (isLearning ? '学习中' : '空闲') +
+      '</span>' +
+    '</div>';
+  }).join('');
+
+  el.innerHTML = html;
+}
+
+function selectAccount(aid) {
+  selectedAccount = aid;
+  renderAccounts();
+  renderCourses();
+}
+
+// ============================================================
+// Render: Courses
+// ============================================================
+function renderCourses() {
+  var tbody = document.getElementById('course-tbody');
+  var rows = [];
+
+  for (var aid in accounts) {
+    if (selectedAccount && aid !== selectedAccount) continue;
+    var a = accounts[aid];
+    a.courses.forEach(function(c) {
+      // 默认隐藏已完成课程
+      var pct = c.learn_pct || 0;
+      if (!showCompletedOnly && pct >= 100) return;
+      rows.push({
+        account_id: aid,
+        account_name: a.user_name,
+        course_id: c.course_id,
+        course_name: c.course_name,
+        trainplan_name: c.trainplan_name,
+        learn_pct: c.learn_pct,
+        uncompleted: c.uncompleted,
+        total_time: c.total_time,
+        sections: c.sections
+      });
+    });
+  }
+
+  if (rows.length === 0) {
+    var acctKeys = Object.keys(accounts);
+    if (acctKeys.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" class="empty-state">请先登录获取课程列表</td></tr>';
+    } else {
+      // 检查是否有已完成课程被隐藏
+      var hasHidden = false;
+      for (var aid2 in accounts) {
+        if (selectedAccount && aid2 !== selectedAccount) continue;
+        for (var k = 0; k < accounts[aid2].courses.length; k++) {
+          if ((accounts[aid2].courses[k].learn_pct || 0) >= 100) { hasHidden = true; break; }
+        }
+        if (hasHidden) break;
+      }
+      if (hasHidden && !showCompletedOnly) {
+        tbody.innerHTML = '<tr><td colspan="7" class="empty-state">所有课程已完成 🎉 点击"显示已完成课程"查看全部</td></tr>';
+      } else if (selectedAccount) {
+        tbody.innerHTML = '<tr><td colspan="7" class="empty-state">该账户暂无课程数据，点击"刷新所有课程"重试</td></tr>';
+      } else {
+        tbody.innerHTML = '<tr><td colspan="7" class="empty-state">暂无课程数据，点击"刷新所有课程"重试</td></tr>';
+      }
+    }
+    return;
+  }
+
+  tbody.innerHTML = rows.map(function(r) {
+    var pct = r.learn_pct || 0;
+    var isDone = pct >= 100;
+    var hasTodo = r.uncompleted > 0;
+    var timeStr = r.total_time > 0
+      ? Math.floor(r.total_time/3600) + 'h' + Math.floor((r.total_time%3600)/60) + 'm'
+      : '-';
+
+    return '<tr>' +
+      '<td><input type="checkbox" class="course-check" value="' + r.account_id + ':' + r.course_id + '"' + (hasTodo ? ' checked' : '') + '></td>' +
+      '<td>' + r.account_name + '</td>' +
+      '<td>' + r.course_name + '</td>' +
+      '<td class="text-muted">' + r.trainplan_name + '</td>' +
+      '<td>' +
+        '<span class="progress-bar"><span class="progress-bar-fill" style="width:' + pct + '%"></span></span>' +
+        '<span class="progress-text">' + pct + '%</span>' +
+      '</td>' +
+      '<td>' +
+        (isDone ? '<span class="tag tag-done">已完成</span>'
+                : hasTodo ? '<span class="tag tag-todo">' + r.uncompleted + '节</span>'
+                          : '<span class="tag tag-zero">无</span>') +
+      '</td>' +
+      '<td class="text-muted">' + timeStr + '</td>' +
+    '</tr>';
+  }).join('');
+
+  updateSelectedCount();
+}
+
+function updateSelectedCount() {
+  var checks = document.querySelectorAll('.course-check:checked');
+  document.getElementById('selected-count').textContent = checks.length;
+}
+
+// ============================================================
+// Checkbox operations
+// ============================================================
+function toggleAll(master) {
+  document.querySelectorAll('.course-check').forEach(function(cb) {
+    cb.checked = master.checked;
+  });
+  updateSelectedCount();
+}
+
+function selectAll(val) {
+  document.querySelectorAll('.course-check').forEach(function(cb) {
+    cb.checked = val;
+  });
+  document.getElementById('check-all').checked = val;
+  updateSelectedCount();
+}
+
+function selectUncompleted() {
+  document.querySelectorAll('.course-check').forEach(function(cb) {
+    var parts = cb.value.split(':');
+    var aid = parts[0], cid = parts[1];
+    var course = accounts[aid].courses.find(function(c) { return c.course_id === cid; });
+    cb.checked = course && course.uncompleted > 0;
+  });
+  updateSelectedCount();
+}
+
+// Listen for checkbox changes
+document.addEventListener('change', function(e) {
+  if (e.target.classList.contains('course-check')) {
+    updateSelectedCount();
+  }
+});
+
+// ============================================================
+// Start / Stop Learning
+// ============================================================
+function startLearning() {
+  var checks = document.querySelectorAll('.course-check:checked');
+  if (checks.length === 0) {
+    alert('请先选择要学习的课程');
+    return;
+  }
+
+  // Group by account
+  var selections = {};
+  checks.forEach(function(cb) {
+    var parts = cb.value.split(':');
+    var aid = parts[0], cid = parts[1];
+    if (!selections[aid]) selections[aid] = [];
+    selections[aid].push(cid);
+  });
+
+  var payload = Object.keys(selections).map(function(aid) {
+    return {account_id: aid, course_ids: selections[aid]};
+  });
+
+  var btn = document.getElementById('start-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spin"></span> 启动中...';
+
+  fetch('/api/start', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({selections: payload})
+  })
+  .then(r => r.json())
+  .then(data => {
+    btn.disabled = false;
+    btn.innerHTML = '▶ 开始学习选中课程';
+    if (!data.ok) {
+      alert(data.msg || '启动失败');
+    }
+  })
+  .catch(err => {
+    btn.disabled = false;
+    btn.innerHTML = '▶ 开始学习选中课程';
+    alert('网络错误: ' + err);
+  });
+}
+
+function stopAll() {
+  fetch('/api/stop', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({})
+  });
+}
+
+function refreshAll() {
+  var btn = document.getElementById('refresh-btn');
+  var keys = Object.keys(accounts);
+  if (keys.length === 0) {
+    alert('请先登录账户');
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = '⏳ 正在扫描(' + keys.length + '个账户)...';
+  // Re-scan all accounts
+  var promises = [];
+  for (var aid in accounts) {
+    (function(aid) {
+      promises.push(
+        fetch('/api/scan/' + aid, {method: 'POST'})
+          .then(r => r.json())
+          .then(data => {
+            if (data.ok) {
+              accounts[aid].courses = data.courses;
+            }
+          })
+      );
+    })(aid);
+  }
+  Promise.all(promises).then(function() {
+    renderAccounts();
+    renderCourses();
+    btn.disabled = false;
+    btn.textContent = '🔄 刷新所有课程';
+  }).catch(function() {
+    btn.disabled = false;
+    btn.textContent = '🔄 刷新所有课程';
+  });
+}
+
+function toggleCompleted() {
+  showCompletedOnly = !showCompletedOnly;
+  var btn = document.getElementById('toggle-completed-btn');
+  if (showCompletedOnly) {
+    btn.textContent = '🙈 隐藏已完成课程';
+  } else {
+    btn.textContent = '✅ 显示已完成课程';
+  }
+  renderCourses();
+}
+
+// ============================================================
+// SSE: Real-time progress
+// ============================================================
+var evtSource = null;
+
+function connectSSE() {
+  if (evtSource) evtSource.close();
+  evtSource = new EventSource('/api/events');
+
+  evtSource.onopen = function() {
+    document.getElementById('sse-status').textContent = '已连接';
+    document.getElementById('sse-dot').style.background = '#52c41a';
+  };
+
+  evtSource.onerror = function() {
+    document.getElementById('sse-status').textContent = '断开重连...';
+    document.getElementById('sse-dot').style.background = '#fa8c16';
+    setTimeout(connectSSE, 3000);
+  };
+
+  evtSource.onmessage = function(e) {
+    var msg = JSON.parse(e.data);
+    handleSSE(msg.type, msg.data);
+  };
+}
+
+function handleSSE(type, d) {
+  var aid = d.account_id;
+  if (!aid) return;
+
+  if (!dashState[aid]) dashState[aid] = {logs: []};
+  var ds = dashState[aid];
+
+  switch (type) {
+    case 'account_status':
+      ds.status = d.status;
+      if (d.status === 'idle' && d.completed_courses !== undefined) {
+        addLog(ds, '完成: ' + d.completed_courses + '/' + d.total_courses + ' 门课程', 'ok');
+      }
+      renderAccounts();
+      break;
+
+    case 'course_start':
+      ds.current = '课程: ' + d.course + ' (' + d.course_index + '/' + d.total_courses + ')';
+      ds.progress = 0;
+      ds.total = d.total_sections;
+      addLog(ds, '开始课程: ' + d.course + ' (' + d.total_sections + '节)', 'info');
+      break;
+
+    case 'section_start':
+      ds.current = d.course + ' / ' + d.section + ' (' + d.index + '/' + d.total + ')';
+      addLog(ds, '  章节: ' + d.section, '');
+      break;
+
+    case 'step':
+      // minor step update
+      break;
+
+    case 'waiting':
+      ds.progress = d.current;
+      ds.totalSec = d.total;
+      break;
+
+    case 'progress':
+      ds.progress = d.current;
+      ds.totalSec = d.total;
+      break;
+
+    case 'section_done':
+      addLog(ds, '  ✓ 完成 (' + d.total + 's)', 'ok');
+      break;
+
+    case 'course_done':
+      addLog(ds, '课程完成: ' + d.course + ' 成功' + d.done + ' 失败' + d.failed, 'ok');
+      break;
+
+    case 'error':
+      addLog(ds, '错误: ' + (d.course||'') + ' ' + d.error, 'err');
+      break;
+
+    case 'account_stopped':
+      addLog(ds, '已停止', 'err');
+      break;
+  }
+
+  renderDashboard();
+}
+
+function addLog(ds, text, cls) {
+  var now = new Date();
+  var t = ('0'+now.getHours()).slice(-2) + ':' + ('0'+now.getMinutes()).slice(-2) + ':' + ('0'+now.getSeconds()).slice(-2);
+  ds.logs.push({time: t, text: text, cls: cls});
+  if (ds.logs.length > 200) ds.logs.shift();
+}
+
+// ============================================================
+// Render: Dashboard
+// ============================================================
+function renderDashboard() {
+  var grid = document.getElementById('dash-grid');
+  var learningAccounts = Object.keys(dashState).filter(function(aid) {
+    return dashState[aid].status === 'learning' || (dashState[aid].logs && dashState[aid].logs.length > 0);
+  });
+
+  if (learningAccounts.length === 0) {
+    grid.innerHTML = '<div class="empty-state">暂无学习任务</div>';
+    return;
+  }
+
+  // Use up to 2 columns
+  grid.innerHTML = learningAccounts.map(function(aid) {
+    var ds = dashState[aid];
+    var a = accounts[aid];
+    var name = a ? a.user_name : aid;
+    var statusCls = ds.status === 'learning' ? 'status-learning' : 'status-idle';
+    var statusText = ds.status === 'learning' ? '学习中' : '空闲';
+
+    var progressHtml = '';
+    if (ds.totalSec && ds.totalSec > 0) {
+      var pct = Math.round((ds.progress / ds.totalSec) * 100);
+      progressHtml = '<div class="dash-progress">' +
+        '<span class="progress-bar" style="width:160px;"><span class="progress-bar-fill" style="width:' + pct + '%"></span></span>' +
+        '<span>' + ds.progress + '/' + ds.totalSec + 's (' + pct + '%)</span>' +
+      '</div>';
+    }
+
+    var logsHtml = ds.logs.slice(-50).map(function(l) {
+      return '<div class="log-line log-' + l.cls + '"><span class="log-time">[' + l.time + ']</span> ' + l.text + '</div>';
+    }).join('');
+
+    return '<div class="dash-account">' +
+      '<h4>' + name +
+        ' <span class="account-status ' + statusCls + '">' + statusText + '</span>' +
+      '</h4>' +
+      '<div class="dash-current">' + (ds.current || '等待中...') + '</div>' +
+      progressHtml +
+      '<div class="dash-log">' + logsHtml + '</div>' +
+    '</div>';
+  }).join('');
+}
+
+// ============================================================
+// Init
+// ============================================================
+// Enter key to submit login
+document.getElementById('password').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') doLogin();
+});
+document.getElementById('captcha').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') doLogin();
+});
+
+connectSSE();
+</script>
+</body>
+</html>
