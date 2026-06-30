@@ -1,78 +1,104 @@
 # chinahrt_web — 继续教育自动学习工具
 
+ chinahrt.com 继续教育平台自动学习脚本，支持多账户、多线程学习、SSE 实时进度推送。
+
 ## 功能
 
-- 多账户同时登录管理
-- 自动扫描培训计划 / 课程 / 未完成章节
-- 多线程并行学习，SSE 实时进度推送
-- 支持 lczj / gp 域名自动映射
-- 默认只显示未完成课程
+- 多账户管理，同时学习多门课程
+- 自动登录（支持验证码）
+- 课程扫描与进度展示
+- 自动学习（视频进度上报）
+- 续学：从已学位置继续，不从头开始
+- SSE 实时进度推送，网页看板实时显示
+- 支持 gp5 / gp6 两种播放器上报通道
 
-## 本地运行
+## 环境要求
 
-```bash
-cd ~/Downloads/chinahrt_web
-./venv/bin/python3 app.py
-```
+- Python 3.10+
+- Flask
+- requests
 
-访问 http://localhost:5678
-
-依赖: Flask, requests (项目自带 venv)
-
-## NAS 部署
+## 安装
 
 ```bash
-# 1. 上传文件
-rsync -avz --exclude venv --exclude __pycache__ ~/Downloads/chinahrt_web/ \
-  admin@fnos.noxon.top:/vol1/1000/chinahrt_web/
-
-# 2. 安装依赖
-ssh -p 4669 admin@fnos.noxon.top \
-  'cd /vol1/1000/chinahrt_web && python3 -m venv venv && ./venv/bin/pip install flask requests'
-
-# 3. 启动
-ssh -p 4669 admin@fnos.noxon.top \
-  'cd /vol1/1000/chinahrt_web && nohup ./venv/bin/python3 app.py > chinahrt_web.log 2>&1 &'
+cd chinahrt_web_patch
+python -m venv venv
+source venv/bin/activate
+pip install flask requests
 ```
 
-NAS 外网访问: https://fnos.noxon.top:4673
+## 运行
 
-## 使用流程
-
-1. 打开网页，输入身份证号、密码
-2. 输入验证码，点击登录
-3. 系统自动扫描所有培训计划和课程
-4. 课程列表默认只显示未完成的课程
-5. 勾选要学习的课程，点击"开始学习选中课程"
-6. 右侧面板实时显示学习进度
-7. 学完后点击"刷新所有课程"更新进度
-
-## 文件结构
-
-```
-chinahrt_web/
-├── app.py              # Flask 后端 (多账户+SSE+线程)
-├── learner.py          # 核心学习逻辑 (登录/扫描/上报)
-├── templates/
-│   └── index.html      # 单页 Web UI
-├── venv/               # Python 虚拟环境
-└── README.md           # 本文档
+```bash
+./venv/bin/python app.py
 ```
 
-## 技术要点
+浏览器访问 http://127.0.0.1:5678
 
-- **登录**: POST /gp6/system/manager/login/valid，密码 MD5 加密，需 Hrt-Random 头
-- **课程列表**: GET /gp6/lms/stu/trainplanCourseHandle/selected_course，响应键 courseStudyList
-- **反作弊**: 每 28 秒上报一次，必须真实等待。签名算法 HMAC-SHA256，数据 base60 编码
-- **域名映射**: lczj.chinahrt.com → gp.chinahrt.com (lczj 是门户无 API)
+## 使用
 
-## 已知限制 (v1.0)
+1. 输入域名（默认 gp.chinahrt.com）、用户名、密码
+2. 点击获取验证码，输入
+3. 点击登录，自动扫描课程列表
+4. 勾选要学习的课程，点击开始学习
+5. 进度看板实时显示学习进度
+6. 可随时停止，下次继续从已学位置学习
 
-1. Flask debug 模式 — 修改文件会自动重载并中断学习线程
-2. 课程列表进度只在扫描时快照，学习过程中不实时更新
-3. 无持久化 — 服务重启后需重新登录
-4. 无开机自启动
+## 技术细节
 
-## 版本
+### 双播放器支持
 
-- v1.0 (2026-06-22): 初始版本
+chinahrt 平台存在两种播放器，上报机制不同：
+
+| | gp6（旧版） | gp5（新版） |
+|---|---|---|
+| 上报接口 | /videoPlay/takeRecordByToken | /videoPlay/takeRecord |
+| 数据编码 | base60 + HMAC signature | 普通 form POST |
+| token 格式 | 32位 hex，单引号 | 10位短串，双引号 |
+| 额外参数 | token, time, timestamp | studyCode, recordId, signId, sectionId, businessId |
+
+脚本自动检测播放器类型（通过 HTML 中是否含 signId 字段），走对应上报通道。
+
+### 续学机制
+
+- gp5 课程：从播放页 HTML 中的 lastPlayTime 续学
+- gp6 课程：从章节详情中的 study_time 续学
+- 上报间隔 28 秒，与真实播放时间同步
+
+### 扫描优化
+
+课程列表扫描只获取课程基本信息（名称、进度百分比、时长），不逐个获取章节详情，120 门课程 3 秒内完成。章节详情在开始学习时才获取。
+
+### 网络重试
+
+所有 HTTP 请求自动重试 3 次（退避 0.5 秒），应对 chinahrt 服务器连接重置。
+
+## 文件说明
+
+```
+app.py        Flask 后端（多账户管理、SSE 推送、扫描逻辑）
+learner.py    核心学习逻辑（登录、扫描、上报）
+templates/    前端页面
+debug_api.py  调试工具
+```
+
+## 部署
+
+### 本地运行
+
+```bash
+./venv/bin/python app.py
+```
+
+### NAS 部署
+
+可部署到飞牛 NAS 等 Docker 环境，参考 Dockerfile 示例：
+
+```dockerfile
+FROM python:3.12-slim
+WORKDIR /app
+COPY . .
+RUN pip install flask requests
+EXPOSE 5678
+CMD ["python", "app.py"]
+```
