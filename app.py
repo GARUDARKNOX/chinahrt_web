@@ -92,28 +92,31 @@ def do_scan_courses(account_id: str) -> list:
             c_name = c.get("courseName", c.get("name", ""))
             learn_pct = c.get("learnPercent", c.get("studyProcess", 0))
 
-            # 获取未完成章节
-            sections = []
-            try:
-                sections = learner.get_uncompleted_sections(c_id, tp_id)
-            except Exception as e:
-                print(f"[scan]     get_sections error for {c_name}: {e}")
+            # 从课程列表的 duration 字段解析总时长 (格式 "HH:MM:SS")
+            duration_str = c.get("duration", "")
+            total_sec = 0
+            if duration_str and ":" in str(duration_str):
+                parts = str(duration_str).split(":")
+                try:
+                    if len(parts) == 3:
+                        total_sec = int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+                    elif len(parts) == 2:
+                        total_sec = int(parts[0]) * 60 + int(parts[1])
+                except ValueError:
+                    pass
 
-            total_sec = sum(s["total_time"] for s in sections)
-            print(f"[scan]     {c_name} - {learn_pct}% - {len(sections)} uncompleted")
+            # 不在扫描时获取章节详情（太慢且阻塞学习线程）
+            # 章节详情在 learn_course 开始学习时才获取
+            print(f"[scan]     {c_name} - {learn_pct}% - {duration_str}")
             courses_flat.append({
                 "course_id": c_id,
                 "course_name": c_name,
                 "trainplan_id": tp_id,
                 "trainplan_name": tp_name,
                 "learn_pct": learn_pct,
-                "uncompleted": len(sections),
+                "uncompleted": 0 if int(learn_pct or 0) >= 100 else 1,
                 "total_time": total_sec,
-                "sections": [
-                    {"id": s["id"], "name": s["name"],
-                     "total_time": s["total_time"], "chapter": s["chapter"]}
-                    for s in sections
-                ],
+                "sections": [],
             })
 
     return courses_flat
@@ -296,6 +299,9 @@ def api_login():
         courses = do_scan_courses(account_id)
         ACCOUNTS[account_id]["courses"] = courses
     except Exception as e:
+        import traceback
+        print(f"[login] 扫描课程异常: {e}")
+        traceback.print_exc()
         courses = []
 
     return jsonify({

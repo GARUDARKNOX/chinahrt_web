@@ -25,6 +25,21 @@ COMMON_HEADERS = {
 }
 
 
+def _configure_session(session: requests.Session):
+    """为 session 配置自动重试，应对 chinahrt 服务器连接重置"""
+    from requests.adapters import HTTPAdapter
+    from urllib3.util.retry import Retry
+    retry = Retry(
+        total=3,
+        backoff_factor=0.5,
+        status_forcelist=[502, 503, 504],
+        allowed_methods=["GET", "POST"],
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+
+
 class StoppedByUser(Exception):
     pass
 
@@ -63,6 +78,7 @@ class ChinaHrtLogin:
         api_domain = self._API_DOMAIN_MAP.get(domain, domain)
         self.base_url = f"https://{api_domain}"
         self.session = requests.Session()
+        _configure_session(self.session)
         self.session.headers.update(COMMON_HEADERS)
         self.session.headers["Referer"] = f"https://{api_domain}/index.html"
         self._captcha_random = ""
@@ -157,6 +173,7 @@ class ChinaHrtLearner:
         self.stop_event = stop_event      # threading.Event
 
         self.session = requests.Session()
+        _configure_session(self.session)
         self.session.headers.update(COMMON_HEADERS)
         self.session.headers["hrttoken"] = token
         self.session.headers["Referer"] = f"{base_url}/index.html"
@@ -305,22 +322,82 @@ class ChinaHrtLearner:
     def get_video_params(self, play_url: str) -> dict:
         resp = self.session.get(play_url, headers={"Referer": f"{self.base_url}/"})
         html = resp.text
-        take_token = re.search(r"token:\s*'([^']+)'", html)
-        total_time = re.search(r"total_time['\"]?\s*[:=]\s*([\d.]+)", html)
+        # token 可能用单引号或双引号包裹，格式也可能不同（hex 或短串）
+        take_token = re.search(r"token:\s*['\"]([^'\"]+)['\"]", html)
+        total_time = re.search(r"total_time['\"']?\s*[:=]\s*([\d.]+)", html)
         if not take_token:
-            raise RuntimeError("无法提取 take.token")
-        return {
+            snippet = html[:2000] if len(html) > 2000 else html
+            raise RuntimeError(f"无法提取 take.token (html_len={len(html)}, snippet={snippet[:500]})")
+
+        params = {
             "take_token": take_token.group(1),
             "total_time": int(float(total_time.group(1))) if total_time else 0,
             "play_url": play_url,
         }
+
+        # 检测新版 gp5 播放器：HTML 中含 signId / studyCode / recordId 等 attrset 字段
+        sign_id = re.search(r'signId["\']?\s*[:=]\s*["\']([^"\';\n,}]+)', html)
+        if sign_id:
+            # 新版 gp5 课程，提取完整上报参数
+            def extract_attr(field):
+                m = re.search(
+                    rf'{field}["\']?\s*[:=]\s*["\']([^"\';\n,}}]+)', html)
+                return m.group(1) if m else ""
+
+            last_play = re.search(
+                r"lastPlayTime['\"]?\s*[:=]\s*([\d.]+)", html)
+            params["mode"] = "gp5"
+            params["sign_id"] = sign_id.group(1)
+            params["study_code"] = extract_attr("studyCode")
+            params["record_id"] = extract_attr("recordId")
+            params["section_id_v2"] = extract_attr("sectionId")
+            params["business_id"] = extract_attr("businessId") or "gp5"
+            params["update_redis_map"] = extract_attr("updateRedisMap") or "1"
+            params["last_play_time"] = float(
+                last_play.group(1)) if last_play else 0
+            # gp5 的 total_time 从 lastPlayTime 无法得知，用 0，靠 override
+            if not params["total_time"]:
+                params["total_time"] = 0
+        else:
+            params["mode"] = "gp6"
+
+        return params
 
     def activate_token(self, take_token: str, play_url: str):
         url = f"{VIDEO_ADMIN_URL}/videoPlay/token_scope/{take_token}"
         self.session.get(url, headers={"Referer": play_url})
 
     def report_progress(self, take_token, time_val, duration=None,
-                        is_end=False, play_url="") -> dict:
+                        is_end=False, play_url="", params=None) -> dict:
+        mode = (params or {}).get("mode", "gp6")
+
+        if mode == "gp5":
+            # 新版 gp5 播放器：普通 form POST 到 /videoPlay/takeRecord
+            data = {
+                "studyCode": params["study_code"],
+                "recordUrl": params.get("record_url", ""),
+                "updateRedisMap": params["update_redis_map"],
+                "recordId": params["record_id"],
+                "sectionId": params["section_id_v2"],
+                "signId": params["sign_id"],
+                "time": int(time_val),
+                "businessId": params["business_id"],
+                "token": take_token,
+            }
+            resp = self.session.post(
+                f"{VIDEO_ADMIN_URL}/videoPlay/takeRecord",
+                data=data,
+                headers={
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Origin": VIDEO_ADMIN_URL,
+                    "Referer": play_url or f"{VIDEO_ADMIN_URL}/",
+                },
+            )
+            result = resp.json()
+            new_token = result.get("data", "")
+            return {"token": new_token or take_token, "response": result}
+
+        # 旧版 gp6 播放器：base60 编码 + signature
         timestamp = int(time.time() * 1000)
         data = {
             "token": take_token,
@@ -346,7 +423,8 @@ class ChinaHrtLearner:
         return {"token": new_token or take_token, "response": result}
 
     def learn_section(self, course_id, section_id, trainplan_id,
-                      section_name="", total_time_override=None) -> bool:
+                      section_name="", total_time_override=None,
+                      study_time_override=None) -> bool:
         self._check_stop()
 
         print(f"[learn] === section start: {section_name} (course={course_id}, sec={section_id}, tp={trainplan_id}) ===", flush=True)
@@ -364,8 +442,15 @@ class ChinaHrtLearner:
         self.activate_token(take_token, play_url)
         print(f"[learn] token activated", flush=True)
 
-        token_issue_time = time.time()
-        current_time = 0
+        # 从已学位置继续，避免从0重新开始浪费时间
+        if params.get("mode") == "gp5":
+            current_time = int(params.get("last_play_time", 0))
+        else:
+            # gp6: 用 study_time_override (来自章节详情)
+            current_time = int(study_time_override or 0)
+        print(f"[learn] resume from {current_time}s / {total_time}s", flush=True)
+        # 基准时间偏移 current_time，使 wait_needed = REPORT_INTERVAL（而非 current_time）
+        token_issue_time = time.time() - current_time
 
         while current_time < total_time:
             self._check_stop()
@@ -394,7 +479,7 @@ class ChinaHrtLearner:
                     "total": total_time,
                 })
 
-            resp = self.report_progress(take_token, current_time, play_url=play_url)
+            resp = self.report_progress(take_token, current_time, play_url=play_url, params=params)
             take_token = resp["token"]
 
             self._emit("progress", {
@@ -414,7 +499,7 @@ class ChinaHrtLearner:
                 wait_needed -= 5
 
         self.report_progress(take_token, total_time, duration=total_time,
-                             is_end=True, play_url=play_url)
+                             is_end=True, play_url=play_url, params=params)
         self._emit("section_done", {"section": section_name, "total": total_time})
         return True
 
@@ -423,7 +508,7 @@ class ChinaHrtLearner:
         """学习一门课程的所有未完成章节"""
         self._check_stop()
 
-        if sections is None:
+        if not sections:
             sections = self.get_uncompleted_sections(course_id, trainplan_id)
 
         total = len(sections)
@@ -447,7 +532,7 @@ class ChinaHrtLearner:
             try:
                 self.learn_section(
                     course_id, sec["id"], trainplan_id,
-                    sec["name"], sec["total_time"]
+                    sec["name"], sec["total_time"], sec.get("study_time", 0)
                 )
                 done += 1
             except StoppedByUser:
