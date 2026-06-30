@@ -291,7 +291,9 @@ class ChinaHrtLearner:
                 if not isinstance(sec, dict):
                     continue
                 study_pct = sec.get("studyProcess", sec.get("study_process", sec.get("process", 0)))
-                if study_pct < 100:
+                study_status = sec.get("study_status", sec.get("studyStatus", ""))
+                # 未完成: 进度<100 或 状态不是"已学完"
+                if int(study_pct or 0) < 100 or (study_status and study_status != "已学完"):
                     sections.append({
                         "id": str(sec.get("id", sec.get("sectionId", ""))),
                         "name": sec.get("name", sec.get("title", "")),
@@ -335,9 +337,14 @@ class ChinaHrtLearner:
             "play_url": play_url,
         }
 
-        # 检测新版 gp5 播放器：HTML 中含 signId / studyCode / recordId 等 attrset 字段
+        # 检测新版 gp5 播放器：HTML 中含 studyCode / recordId (gp5 特有字段)
+        # 检测新版 gp5 播放器：HTML 中直接含 takeRecord 的 ajax 调用
+        # (注意:不能用 signId/studyCode 判断，因为部分 gp6 课程也有这些字段，
+        #  但上报走播放器JS内部的 takeRecordByToken)
         sign_id = re.search(r'signId["\']?\s*[:=]\s*["\']([^"\';\n,}]+)', html)
-        if sign_id:
+        study_code = re.search(r'studyCode["\']?\s*[:=]\s*["\']([^"\';\n,}]+)', html)
+        has_takeRecord_ajax = bool(re.search(r'takeRecord["\']', html))
+        if has_takeRecord_ajax:
             # 新版 gp5 课程，提取完整上报参数
             def extract_attr(field):
                 m = re.search(
@@ -347,8 +354,8 @@ class ChinaHrtLearner:
             last_play = re.search(
                 r"lastPlayTime['\"]?\s*[:=]\s*([\d.]+)", html)
             params["mode"] = "gp5"
-            params["sign_id"] = sign_id.group(1)
-            params["study_code"] = extract_attr("studyCode")
+            params["sign_id"] = sign_id.group(1) if sign_id else ""
+            params["study_code"] = study_code.group(1) if study_code else ""
             params["record_id"] = extract_attr("recordId")
             params["section_id_v2"] = extract_attr("sectionId")
             params["business_id"] = extract_attr("businessId") or "gp5"
@@ -498,8 +505,18 @@ class ChinaHrtLearner:
                 time.sleep(min(wait_needed, 5))
                 wait_needed -= 5
 
-        self.report_progress(take_token, total_time, duration=total_time,
+        end_resp = self.report_progress(take_token, total_time, duration=total_time,
                              is_end=True, play_url=play_url, params=params)
+        end_status = str(end_resp["response"].get("code") or end_resp["response"].get("status", ""))
+        print(f"[learn] is_end response: status={end_status} resp={end_resp['response']}", flush=True)
+        if end_status != "0":
+            # is_end 失败，重试一次
+            print(f"[learn] is_end failed, retrying...", flush=True)
+            time.sleep(2)
+            end_resp = self.report_progress(take_token, total_time, duration=total_time,
+                                 is_end=True, play_url=play_url, params=params)
+            end_status = str(end_resp["response"].get("code") or end_resp["response"].get("status", ""))
+            print(f"[learn] is_end retry response: status={end_status} resp={end_resp['response']}", flush=True)
         self._emit("section_done", {"section": section_name, "total": total_time})
         return True
 
